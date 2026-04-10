@@ -25,20 +25,20 @@
         "rust-overlay": "rust-overlay"
       },
       "locked": {
-        "lastModified": 1772382460,
-        "narHash": "sha256-5rsxkMNWyLus88+TBwJCdHyTv+4QEE+SAAwPqzFcADU=",
-        "ref": "refs/heads/main",
-        "rev": "53302e4373755b72391727de3d5d2b30e1239dbb",
-        "revCount": 146,
+        "lastModified": 1775847121,
+        "narHash": "sha256-D+nysg47+FcgHQjpUKxsUnw0DlU/81KmsMpQt2QDFSQ=",
+        "ref": "feat/logos-delivery",
+        "rev": "81cd64e3b4d759a0b96a27f5e1a4c693126518a7",
+        "revCount": 148,
         "submodules": true,
         "type": "git",
-        "url": "https://github.com/logos-messaging/logos-chat"
+        "url": "https://github.com/adklempner/logos-chat"
       },
       "original": {
-        "rev": "53302e4373755b72391727de3d5d2b30e1239dbb",
+        "ref": "feat/logos-delivery",
         "submodules": true,
         "type": "git",
-        "url": "https://github.com/logos-messaging/logos-chat"
+        "url": "https://github.com/adklempner/logos-chat"
       }
     },
     "logos-cpp-sdk": {
