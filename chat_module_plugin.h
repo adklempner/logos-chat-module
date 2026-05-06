@@ -4,6 +4,7 @@
 #include "chat_module_interface.h"
 #include "logos_api.h"
 #include "logos_api_client.h"
+#include "logos_api_consumer.h"
 #include "liblogoschat.h"
 
 /**
@@ -274,6 +275,39 @@ public:
      */
     Q_INVOKABLE bool createIntroBundle() override;  // TODO: should not be async
 
+    // -------------------------------------------------------------------------
+    // RLN Operations
+    // -------------------------------------------------------------------------
+
+    /**
+     * @brief Sets RLN configuration for mix spam protection.
+     *
+     * Registers the RLN fetcher callback to bridge the RLN module, sets the
+     * config account ID and leaf index, and subscribes to RLN module events
+     * (valid_roots, merkle_proof) to push them into the Nim layer.
+     *
+     * @param configAccountId LEZ config account ID for the RLN tree.
+     * @param leafIndex       Leaf index in the on-chain merkle tree.
+     * @return @c true on success; @c false if context not initialized.
+     */
+    Q_INVOKABLE bool setRlnConfig(const QString& configAccountId, int leafIndex) override;
+
+    /**
+     * @brief Self-registers an RLN membership via the RLN module.
+     *
+     * Generates an identity, registers it on-chain via the RLN module, then
+     * configures the credentials on the Nim layer.
+     *
+     * @param configAccountId    LEZ config account ID.
+     * @param walletAccountId    Wallet account for on-chain registration.
+     * @param rateLimit          Message rate limit for the membership.
+     * @return JSON string with {id_secret_hash, id_commitment, leaf_index} on
+     *         success; empty string on failure.
+     */
+    Q_INVOKABLE QString selfRegisterRln(const QString& configAccountId,
+                                         const QString& walletAccountId,
+                                         int rateLimit) override;
+
     /** @brief Returns the plugin name. */
     QString name() const override { return "chat_module"; }
 
@@ -349,6 +383,9 @@ signals:
 
 private:
     void* chatCtx;
+
+    static int rln_fetcher(const char* method, const char* params,
+        void (*callback)(int, const char*, size_t, void*), void* callbackData, void* fetcherData);
 
     static void init_callback(int callerRet, const char* msg, size_t len, void* userData);
     static void start_callback(int callerRet, const char* msg, size_t len, void* userData);

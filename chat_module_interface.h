@@ -27,6 +27,12 @@ public:
     Q_INVOKABLE virtual bool getIdentity() = 0;
     Q_INVOKABLE virtual bool createIntroBundle() = 0;
 
+    // RLN Operations
+    Q_INVOKABLE virtual bool setRlnConfig(const QString& configAccountId, int leafIndex) = 0;
+    Q_INVOKABLE virtual QString selfRegisterRln(const QString& configAccountId,
+                                                 const QString& walletAccountId,
+                                                 int rateLimit) = 0;
+
 signals:
     void eventResponse(const QString& eventName, const QVariantList& data);
 };
