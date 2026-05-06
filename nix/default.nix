@@ -26,6 +26,7 @@
     "-DLOGOS_LIBLOGOS_ROOT=${logosLiblogos}"
     "-DLOGOS_CHAT_ROOT=${logosChat}"
     "-DLOGOS_CHAT_MODULE_USE_VENDOR=OFF"
+    "-DSKIP_CPP_GENERATOR=ON"
   ];
 
   # Metadata

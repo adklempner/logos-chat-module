@@ -25,11 +25,11 @@
         "rust-overlay": "rust-overlay"
       },
       "locked": {
-        "lastModified": 1775847121,
-        "narHash": "sha256-D+nysg47+FcgHQjpUKxsUnw0DlU/81KmsMpQt2QDFSQ=",
+        "lastModified": 1776290567,
+        "narHash": "sha256-2IV05+/XBHWUBASBkYZQ95m1XXszdqYxgmnVfh5cCsE=",
         "ref": "feat/logos-delivery",
-        "rev": "81cd64e3b4d759a0b96a27f5e1a4c693126518a7",
-        "revCount": 148,
+        "rev": "f53d422ce99b92b494caf95605498cc85f03b563",
+        "revCount": 183,
         "submodules": true,
         "type": "git",
         "url": "https://github.com/adklempner/logos-chat"
@@ -46,15 +46,16 @@
         "nixpkgs": "nixpkgs_2"
       },
       "locked": {
-        "lastModified": 1767724329,
-        "narHash": "sha256-UPkqxqxbKwU5Dmu00TnjiJVXUmfVylF3p1qziEuYwIE=",
+        "lastModified": 1773672219,
+        "narHash": "sha256-p+kv2WHokT40rScnSFSIDp/EeFLaDUsTHW6QT6ejKuc=",
         "owner": "logos-co",
         "repo": "logos-cpp-sdk",
-        "rev": "32f1d7080d784ff044d91d076ef2f0c7305d4784",
+        "rev": "a4bd66cd6eb04ee7140bb940b1d49d72d60248de",
         "type": "github"
       },
       "original": {
         "owner": "logos-co",
+        "ref": "a4bd66c",
         "repo": "logos-cpp-sdk",
         "type": "github"
       }

@@ -85,12 +85,18 @@ find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Core RemoteObjects)
 set(METADATA_JSON "${CMAKE_CURRENT_SOURCE_DIR}/metadata.json")
 set(PLUGINS_OUTPUT_DIR "${CMAKE_BINARY_DIR}/modules")
 
-# Try to find the generator binary
-if(_cpp_sdk_is_source)
+option(SKIP_CPP_GENERATOR "Use pre-generated files instead of running logos-cpp-generator (avoids macOS segfault in nix builds)" OFF)
+
+if(SKIP_CPP_GENERATOR)
+    # Copy pre-generated files from generated/ into the build modules dir
+    file(MAKE_DIRECTORY "${PLUGINS_OUTPUT_DIR}/chat_module")
+    file(COPY "${CMAKE_CURRENT_SOURCE_DIR}/generated/" DESTINATION "${PLUGINS_OUTPUT_DIR}/chat_module")
+    add_custom_target(run_cpp_generator_chat) # no-op
+elseif(_cpp_sdk_is_source)
     # Source layout: build the generator
     set(CPP_GENERATOR_BUILD_DIR "${LOGOS_DEPS_ROOT}/build/cpp-generator")
     set(CPP_GENERATOR "${CPP_GENERATOR_BUILD_DIR}/bin/logos-cpp-generator")
-    
+
     if(NOT TARGET cpp_generator_build)
         add_custom_target(cpp_generator_build
             COMMAND bash "${LOGOS_CPP_SDK_ROOT}/cpp-generator/compile.sh"
@@ -99,7 +105,7 @@ if(_cpp_sdk_is_source)
             VERBATIM
         )
     endif()
-    
+
     add_custom_target(run_cpp_generator_chat
         COMMAND "${CPP_GENERATOR}" --metadata "${METADATA_JSON}" --module-dir "${PLUGINS_OUTPUT_DIR}"
         WORKING_DIRECTORY "${LOGOS_DEPS_ROOT}"
@@ -110,7 +116,7 @@ if(_cpp_sdk_is_source)
 else()
     # Installed layout: use the generator from the install path
     find_program(CPP_GENERATOR logos-cpp-generator PATHS ${LOGOS_CPP_SDK_ROOT}/bin NO_DEFAULT_PATH REQUIRED)
-    
+
     add_custom_target(run_cpp_generator_chat
         COMMAND "${CPP_GENERATOR}" --metadata "${METADATA_JSON}" --module-dir "${PLUGINS_OUTPUT_DIR}"
         WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"

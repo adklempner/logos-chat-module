@@ -4,7 +4,7 @@
   inputs = {
     # Follow the same nixpkgs as logos-liblogos to ensure compatibility
     nixpkgs.follows = "logos-liblogos/nixpkgs";
-    logos-cpp-sdk.url = "github:logos-co/logos-cpp-sdk";
+    logos-cpp-sdk.url = "github:logos-co/logos-cpp-sdk/a4bd66c";
     logos-liblogos.url = "github:logos-co/logos-liblogos";
     logos-chat.url = "git+https://github.com/adklempner/logos-chat?submodules=1&ref=feat/logos-delivery";
   };
@@ -12,12 +12,20 @@
   outputs = { self, nixpkgs, logos-cpp-sdk, logos-liblogos, logos-chat }:
     let
       systems = [ "aarch64-darwin" "x86_64-darwin" "aarch64-linux" "x86_64-linux" ];
-      forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f {
-        pkgs = import nixpkgs { inherit system; };
-        logosSdk = logos-cpp-sdk.packages.${system}.default;
-        logosLiblogos = logos-liblogos.packages.${system}.default;
-        logosChat = logos-chat.packages.${system}.default;
-      });
+      forAllSystems = f: nixpkgs.lib.genAttrs systems (system:
+        let pkgs = import nixpkgs { inherit system; };
+        in f {
+          inherit pkgs;
+          logosSdk = pkgs.symlinkJoin {
+            name = "logos-cpp-sdk";
+            paths = [
+              logos-cpp-sdk.packages.${system}.logos-cpp-lib
+              logos-cpp-sdk.packages.${system}.logos-cpp-include
+            ];
+          };
+          logosLiblogos = logos-liblogos.packages.${system}.default;
+          logosChat = logos-chat.packages.${system}.default;
+        });
     in
     {
       packages = forAllSystems ({ pkgs, logosSdk, logosLiblogos, logosChat }: 
