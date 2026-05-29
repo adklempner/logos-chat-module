@@ -9,6 +9,8 @@ extern "C" {
 #include "lib/liblogoschat.h"
 }
 
+class LogosAPI;
+
 /**
  * @brief Pure C++ implementation of the Logos Chat module.
  *
@@ -319,8 +321,47 @@ public:
     // TODO: should not be async
     bool createIntroBundle();
 
+    // -------------------------------------------------------------------------
+    // RLN Operations
+    // -------------------------------------------------------------------------
+
+    /**
+     * @brief Bridges the Nim chat library to @c liblogos_rln_module.
+     *
+     * Installs @ref rln_fetcher on the chat context, sets the RLN account /
+     * leaf index, and subscribes (with a 15s delay + 10s retry) to the
+     * @c valid_roots and @c merkle_proof events from @c liblogos_rln_module,
+     * forwarding them into the Nim chat ctx via @c chat_push_roots /
+     * @c chat_push_proof.
+     *
+     * @return @c true on success; @c false if the chat ctx is not initialised.
+     */
+    bool setRlnConfig(const std::string& configAccountId, int64_t leafIndex);
+
+    /**
+     * @brief Generates an RLN identity and registers it on-chain in-process.
+     *
+     * Calls @c generate_identity then @c register_member on @c liblogos_rln_module
+     * (via QtRO), wires the resulting leaf index through @ref setRlnConfig, and
+     * installs the secret-hash on the chat ctx via @c chat_set_rln_identity.
+     *
+     * @return JSON string @c {id_secret_hash, id_commitment, leaf_index} on
+     *         success; empty string on failure.
+     */
+    std::string selfRegisterRln(const std::string& configAccountId,
+                                 const std::string& walletAccountId,
+                                 int64_t rateLimit);
+
+    /// Wires the LogosAPI handle used by RLN operations.
+    ///
+    /// The handle is encoded as a hex string because the universal codegen
+    /// doesn't recognise opaque pointer types directly. The host must
+    /// pass @c QString::number(reinterpret_cast<quintptr>(api), 16).
+    bool initLogos(const std::string& apiHandleHex);
+
 private:
     void* chatCtx;
+    LogosAPI* logosAPI = nullptr;
 
     /// Receiver for `QMetaObject::invokeMethod(..., Qt::QueuedConnection)`
     /// in `deferredEmit`. See the accessor `emitRouter()` above.
@@ -338,4 +379,13 @@ private:
     static void send_message_callback(int callerRet, const char* msg, size_t len, void* userData);
     static void get_identity_callback(int callerRet, const char* msg, size_t len, void* userData);
     static void create_intro_bundle_callback(int callerRet, const char* msg, size_t len, void* userData);
+
+    /// FFI trampoline registered via @c chat_set_rln_fetcher. Called from Nim
+    /// chronos worker threads; dispatches onto the Qt thread via
+    /// QueuedConnection and blocks the caller on a @c std::promise until the
+    /// async RPC completes. See chat_module_plugin.cpp for the threading
+    /// contract.
+    static int rln_fetcher(const char* method, const char* params,
+                            void (*callback)(int, const char*, size_t, void*),
+                            void* callbackData, void* fetcherData);
 };

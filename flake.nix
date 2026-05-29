@@ -4,7 +4,10 @@
   inputs = {
     logos-module-builder.url = "github:logos-co/logos-module-builder";
     nix-bundle-lgx.url = "github:logos-co/nix-bundle-lgx";
-    logos-chat.url = "git+https://github.com/logos-messaging/logos-chat?submodules=1&rev=53302e4373755b72391727de3d5d2b30e1239dbb";
+    # Local path → use the outer working tree directly. Lets the build see
+    # in-progress changes without round-tripping through GitHub, and avoids
+    # transitive fetchGit ref/rev resolution issues in the submodule chain.
+    logos-chat.url = "git+file:///Users/arseniy/Waku/Logos/logos-chat?submodules=1";
   };
 
   outputs = inputs@{ logos-module-builder, ... }:

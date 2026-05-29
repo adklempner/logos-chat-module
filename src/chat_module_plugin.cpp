@@ -2,10 +2,27 @@
 #include <cstdio>
 #include <cstring>
 #include <chrono>
+#include <future>
+#include <memory>
 #include <string>
 #include <utility>
 #include <nlohmann/json.hpp>
+#include <QDebug>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QMetaObject>
+#include <QRandomGenerator>
+#include <QStringList>
+#include <QTimer>
+#include <QVariant>
+#include <QVariantList>
+
+#include "logos_api.h"
+#include "logos_api_client.h"
+#include "logos_api_consumer.h"
+#include "token_manager.h"
+#include "liblogos_rln_module_api.h"
 
 namespace {
 // Post an emitEvent call through the plugin host's event loop so it
@@ -587,4 +604,264 @@ bool ChatModuleImpl::createIntroBundle()
         fprintf(stderr, "ChatModuleImpl: Failed to create intro bundle, error code: %d\n", result);
         return false;
     }
+}
+
+// ============================================================================
+// RLN Operations
+// ============================================================================
+
+bool ChatModuleImpl::initLogos(const std::string& apiHandleHex)
+{
+    bool ok = false;
+    quintptr raw = QString::fromStdString(apiHandleHex).toULongLong(&ok, 16);
+    if (!ok || raw == 0) {
+        qWarning() << "ChatModuleImpl::initLogos: invalid api handle"
+                   << QString::fromStdString(apiHandleHex);
+        return false;
+    }
+    logosAPI = reinterpret_cast<LogosAPI*>(raw);
+    qDebug() << "ChatModuleImpl: LogosAPI handle installed:" << logosAPI;
+    return true;
+}
+
+// rln_fetcher is the FFI trampoline registered with the Nim chat library
+// via chat_set_rln_fetcher. It is called from Nim chronos worker threads
+// (callRlnFetcherAsync runs the fetcher off the chronos main loop).
+//
+// Threading contract:
+// - Always dispatched onto the Qt thread via QueuedConnection (non-blocking
+//   enqueue). The Qt thread is NEVER blocked waiting for the RPC to
+//   liblogos_rln_module — instead, the typed client's *Async variants fire
+//   their callbacks on the Qt event loop when the response arrives.
+// - The calling Nim worker thread blocks on a std::promise::get_future() until
+//   the async callback completes and sets the promise. This preserves the
+//   existing chat_set_rln_fetcher contract (sync semantics from Nim's view)
+//   without holding the Qt event loop hostage.
+//
+// This unblocks Qt during long-running RPCs (register_member can take 5-60s
+// on testnet) and prevents cascading QtRO timeouts on unrelated host CLI
+// commands.
+int ChatModuleImpl::rln_fetcher(const char* method, const char* params,
+    void (*callback)(int, const char*, size_t, void*), void* callbackData, void* fetcherData)
+{
+    auto* impl = static_cast<ChatModuleImpl*>(fetcherData);
+    if (!impl || !impl->logosAPI) {
+        if (callback) callback(1, "LogosAPI not available", 21, callbackData);
+        return 1;
+    }
+
+    const std::string m = method ? method : "";
+    const std::string p = params ? params : "";
+    auto promise = std::make_shared<std::promise<QString>>();
+    auto future = promise->get_future();
+
+    QMetaObject::invokeMethod(impl->emitRouter(), [impl, m, p, promise]() {
+        // Heap-allocate LiblogosRlnModule and capture by shared_ptr into each
+        // setValue lambda. The typed client's *Async methods return
+        // immediately; their callbacks fire later on the Qt event loop. If
+        // `rln` were a stack local, it'd be destroyed when this lambda
+        // returns (before the callback fires), leading to use-after-free
+        // SIGSEGV in callRlnFetcherAsync's worker thread.
+        auto rln = std::make_shared<LiblogosRlnModule>(impl->logosAPI);
+
+        const QString methodStr = QString::fromStdString(m);
+        const QString paramsStr = QString::fromStdString(p);
+
+        // Capture `rln` by value (shared_ptr ref-count++) so it lives until
+        // the async callback completes.
+        auto setValue = [promise, rln](const QString& v) { promise->set_value(v); };
+
+        if (methodStr == "get_valid_roots") {
+            rln->get_valid_rootsAsync(paramsStr, setValue);
+            return;
+        }
+        if (methodStr == "get_merkle_proofs") {
+            const QStringList parts = paramsStr.split(",");
+            if (parts.size() < 2) { setValue({}); return; }
+            const QString configAccount = parts[0];
+            const QString leafIndicesJson = "[" + parts[1] + "]";
+            rln->get_merkle_proofsAsync(configAccount, leafIndicesJson,
+                [setValue](QString proofsJson) {
+                    const QJsonArray arr = QJsonDocument::fromJson(proofsJson.toUtf8()).array();
+                    if (arr.isEmpty()) { setValue({}); return; }
+                    setValue(QString::fromUtf8(
+                        QJsonDocument(arr[0].toObject()).toJson(QJsonDocument::Compact)));
+                });
+            return;
+        }
+        if (methodStr == "generate_identity") {
+            rln->generate_identityAsync(paramsStr, setValue);
+            return;
+        }
+        if (methodStr == "register_member") {
+            const QJsonDocument paramsDoc = QJsonDocument::fromJson(paramsStr.toUtf8());
+            if (!paramsDoc.isObject()) { setValue({}); return; }
+            const QJsonObject o = paramsDoc.object();
+            const QString cfg = o["configAccountId"].toString();
+            const QString holder = o["userHoldingAccountId"].toString();
+            const QString idCommit = o["idCommitment"].toString();
+            const int rateLimit = o["rateLimit"].toInt(100);
+            if (cfg.isEmpty() || holder.isEmpty() || idCommit.isEmpty()) {
+                setValue({}); return;
+            }
+            // register_member internally chains wallet RPCs; default 20s
+            // QtRO timeout aborts when calls queue serially. Bump to 180s.
+            rln->register_memberAsync(cfg, holder, idCommit, rateLimit, setValue,
+                                       Timeout(180000));
+            return;
+        }
+        setValue({});
+    }, Qt::QueuedConnection);
+
+    // Block the Nim worker thread until the Qt-thread async callback fires.
+    // Qt event loop continues processing other work (subscribe, send, etc.)
+    // during this wait — that's the whole point of the QueuedConnection +
+    // async-typed-client + promise/future bridge.
+    const QString result = future.get();
+    if (result.isEmpty()) {
+        if (callback) callback(1, "rln_fetcher failed", 18, callbackData);
+        return 1;
+    }
+    const QByteArray utf8 = result.toUtf8();
+    if (callback) callback(0, utf8.constData(), utf8.size(), callbackData);
+    return 0;
+}
+
+bool ChatModuleImpl::setRlnConfig(const std::string& configAccountIdStd, int64_t leafIndex)
+{
+    if (!chatCtx) {
+        qWarning() << "ChatModuleImpl: Cannot set RLN config - context not initialized";
+        return false;
+    }
+
+    const QString configAccountId = QString::fromStdString(configAccountIdStd);
+    chat_set_rln_fetcher(chatCtx, rln_fetcher, this);
+    chat_set_rln_config(chatCtx, configAccountId.toUtf8().constData(),
+                        static_cast<int>(leafIndex));
+
+    if (logosAPI) {
+        void* ctx = chatCtx;
+        auto* api = logosAPI;
+        QTimer::singleShot(15000, [ctx, api]() {
+            auto* rlnConsumer = new LogosAPIConsumer("liblogos_rln_module", "chat_module",
+                                                      api->getTokenManager());
+            LogosObject* rlnReplica = rlnConsumer->requestObject("liblogos_rln_module");
+            if (rlnReplica) {
+                rlnConsumer->onEvent(rlnReplica, "valid_roots",
+                    [ctx](const QString& eventName, const QVariantList& data) {
+                        if (data.isEmpty()) return;
+                        QByteArray utf8 = data[0].toString().toUtf8();
+                        if (!utf8.isEmpty())
+                            chat_push_roots(ctx, utf8.constData());
+                    });
+                rlnConsumer->onEvent(rlnReplica, "merkle_proof",
+                    [ctx](const QString& eventName, const QVariantList& data) {
+                        if (data.isEmpty()) return;
+                        QByteArray utf8 = data[0].toString().toUtf8();
+                        if (!utf8.isEmpty())
+                            chat_push_proof(ctx, utf8.constData());
+                    });
+                qDebug() << "ChatModuleImpl: Subscribed to RLN module events";
+            } else {
+                qWarning() << "ChatModuleImpl: Could not get RLN module replica, retrying in 10s...";
+                QTimer::singleShot(10000, [ctx, api]() {
+                    auto* rlnConsumer2 = new LogosAPIConsumer("liblogos_rln_module", "chat_module",
+                                                               api->getTokenManager());
+                    LogosObject* rlnReplica2 = rlnConsumer2->requestObject("liblogos_rln_module");
+                    if (rlnReplica2) {
+                        rlnConsumer2->onEvent(rlnReplica2, "valid_roots",
+                            [ctx](const QString&, const QVariantList& data) {
+                                if (data.isEmpty()) return;
+                                QByteArray utf8 = data[0].toString().toUtf8();
+                                if (!utf8.isEmpty()) chat_push_roots(ctx, utf8.constData());
+                            });
+                        rlnConsumer2->onEvent(rlnReplica2, "merkle_proof",
+                            [ctx](const QString&, const QVariantList& data) {
+                                if (data.isEmpty()) return;
+                                QByteArray utf8 = data[0].toString().toUtf8();
+                                if (!utf8.isEmpty()) chat_push_proof(ctx, utf8.constData());
+                            });
+                        qDebug() << "ChatModuleImpl: Subscribed to RLN module events (retry)";
+                    } else {
+                        qWarning() << "ChatModuleImpl: Could not get RLN module replica after retry";
+                    }
+                });
+            }
+        });
+    }
+
+    qDebug() << "ChatModuleImpl: RLN config set, account:" << configAccountId << "leaf:" << leafIndex;
+    return true;
+}
+
+std::string ChatModuleImpl::selfRegisterRln(const std::string& configAccountIdStd,
+                                              const std::string& walletAccountIdStd,
+                                              int64_t rateLimit)
+{
+    if (!logosAPI) {
+        qWarning() << "selfRegisterRln: logosAPI not initialized";
+        return {};
+    }
+
+    const QString configAccountId = QString::fromStdString(configAccountIdStd);
+    const QString walletAccountId = QString::fromStdString(walletAccountIdStd);
+
+    auto* rlnClient = logosAPI->getClient("liblogos_rln_module");
+    if (!rlnClient) {
+        qWarning() << "selfRegisterRln: RLN module not available";
+        return {};
+    }
+
+    QByteArray seedBytes(32, 0);
+    for (int i = 0; i < 32; ++i)
+        seedBytes[i] = static_cast<char>(QRandomGenerator::global()->generate() & 0xFF);
+    QString seed = QString::fromLatin1(seedBytes.toHex());
+
+    qDebug() << "selfRegisterRln: generating identity with seed" << seed.left(16) << "...";
+    QVariant genResult = rlnClient->invokeRemoteMethod(
+        "liblogos_rln_module", "generate_identity", QVariant(seed));
+    QString genJson = genResult.toString();
+    if (genJson.isEmpty()) {
+        qWarning() << "selfRegisterRln: generate_identity failed";
+        return {};
+    }
+
+    QJsonDocument genDoc = QJsonDocument::fromJson(genJson.toUtf8());
+    QString idCommitment = genDoc.object()["id_commitment"].toString();
+    QString idSecretHash = genDoc.object()["id_secret_hash"].toString();
+    if (idCommitment.isEmpty() || idSecretHash.isEmpty()) {
+        qWarning() << "selfRegisterRln: failed to parse identity" << genJson;
+        return {};
+    }
+    qDebug() << "selfRegisterRln: identity generated, commitment:" << idCommitment.left(16) << "...";
+
+    qDebug() << "selfRegisterRln: registering member...";
+    QVariant regResult = rlnClient->invokeRemoteMethod(
+        "liblogos_rln_module", "register_member",
+        QVariant(configAccountId), QVariant(walletAccountId),
+        QVariant(idCommitment), QVariant(static_cast<qlonglong>(rateLimit)));
+    QString regJson = regResult.toString();
+    if (regJson.isEmpty()) {
+        qWarning() << "selfRegisterRln: register_member failed";
+        return {};
+    }
+
+    QJsonDocument regDoc = QJsonDocument::fromJson(regJson.toUtf8());
+    int leafIndex = static_cast<int>(regDoc.object()["leaf_index"].toDouble());
+    qDebug() << "selfRegisterRln: registered at leaf" << leafIndex;
+
+    if (!setRlnConfig(configAccountIdStd, leafIndex)) {
+        qWarning() << "selfRegisterRln: setRlnConfig failed";
+        return {};
+    }
+
+    if (chatCtx) {
+        chat_set_rln_identity(chatCtx, seed.toUtf8().constData());
+    }
+
+    QJsonObject result;
+    result["id_secret_hash"] = idSecretHash;
+    result["id_commitment"] = idCommitment;
+    result["leaf_index"] = leafIndex;
+    return QJsonDocument(result).toJson(QJsonDocument::Compact).toStdString();
 }
