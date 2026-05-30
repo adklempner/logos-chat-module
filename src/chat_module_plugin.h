@@ -348,9 +348,7 @@ public:
      * @return JSON string @c {id_secret_hash, id_commitment, leaf_index} on
      *         success; empty string on failure.
      */
-    std::string selfRegisterRln(const std::string& configAccountId,
-                                 const std::string& walletAccountId,
-                                 int64_t rateLimit);
+    std::string selfRegisterRln(const std::string& configAccountId, const std::string& walletAccountId, int64_t rateLimit);
 
     /// Wires the LogosAPI handle used by RLN operations.
     ///
