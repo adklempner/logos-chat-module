@@ -4,6 +4,7 @@
 #include <string>
 
 #include <QObject>
+#include <logos_module_context.h>
 
 extern "C" {
 #include "lib/liblogoschat.h"
@@ -64,7 +65,7 @@ class LogosAPI;
  * | @c chatNewConversation | `payload` (string — JSON), `timestamp` (ISO-8601) |
  * | @c chatDeliveryAck     | `payload` (string — JSON), `timestamp` (ISO-8601) |
  */
-class ChatModuleImpl {
+class ChatModuleImpl : public LogosModuleContext {
 public:
     ChatModuleImpl();
     ~ChatModuleImpl();
@@ -278,6 +279,15 @@ public:
      */
     // TODO: content should accept bytes not hex
     bool sendMessage(const std::string& convoId, const std::string& contentHex);
+
+    /**
+     * @brief Same as sendMessage but takes a single JSON-encoded argument.
+     *        Works around logoscore-cli's positional-arg auto-coercion of
+     *        digit-leading hex tokens (e.g. `04976fe39025...` → qulonglong
+     *        4976) by passing the convoId inside a JSON object.
+     * @param jsonStr JSON object: {"convoId":"<hex>","contentHex":"<hex>"}
+     */
+    bool sendMessageJson(const std::string& jsonStr);
 
     // -------------------------------------------------------------------------
     // Identity Operations

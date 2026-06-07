@@ -1,4 +1,5 @@
 #include "chat_module_plugin.h"
+#include "logos_sdk.h"
 #include <cstdio>
 #include <cstring>
 #include <chrono>
@@ -562,6 +563,19 @@ bool ChatModuleImpl::sendMessage(const std::string& convoId, const std::string& 
     }
 }
 
+bool ChatModuleImpl::sendMessageJson(const std::string& jsonStr)
+{
+    try {
+        auto j = nlohmann::json::parse(jsonStr);
+        const std::string convoId = j.at("convoId").get<std::string>();
+        const std::string contentHex = j.at("contentHex").get<std::string>();
+        return sendMessage(convoId, contentHex);
+    } catch (const std::exception& e) {
+        fprintf(stderr, "ChatModuleImpl::sendMessageJson: parse failure: %s\n", e.what());
+        return false;
+    }
+}
+
 // ============================================================================
 // Identity Operations
 // ============================================================================
@@ -739,55 +753,45 @@ bool ChatModuleImpl::setRlnConfig(const std::string& configAccountIdStd, int64_t
     chat_set_rln_config(chatCtx, configAccountId.toUtf8().constData(),
                         static_cast<int>(leafIndex));
 
+    // Lazy-fetch logosAPI via the LogosModuleContext mixin (modules().api).
+    // The local `logosAPI` field is only set by the legacy initLogos(hex)
+    // hook which the universal codegen-emitted provider doesn't auto-invoke
+    // for chat_module. modules() is populated by the framework via
+    // _logosCoreSetLogosModulesPtr_ before any method dispatch.
+    if (!logosAPI && isContextReady()) {
+        logosAPI = modules().api;
+    }
     if (logosAPI) {
+        // Subscribe to liblogos_rln_module events SYNCHRONOUSLY. The previous
+        // QTimer::singleShot(15000, ...) defer never fired because setRlnConfig
+        // runs on a QtRO worker thread without an active Qt event loop, so
+        // queued timer events were never pumped. By the time setRlnConfig is
+        // invoked (post-membership-confirmation), liblogos_rln_module has
+        // been alive for minutes — the original 15s delay was solving a
+        // problem that no longer exists.
         void* ctx = chatCtx;
-        auto* api = logosAPI;
-        QTimer::singleShot(15000, [ctx, api]() {
-            auto* rlnConsumer = new LogosAPIConsumer("liblogos_rln_module", "chat_module",
-                                                      api->getTokenManager());
-            LogosObject* rlnReplica = rlnConsumer->requestObject("liblogos_rln_module");
-            if (rlnReplica) {
-                rlnConsumer->onEvent(rlnReplica, "valid_roots",
-                    [ctx](const QString& eventName, const QVariantList& data) {
-                        if (data.isEmpty()) return;
-                        QByteArray utf8 = data[0].toString().toUtf8();
-                        if (!utf8.isEmpty())
-                            chat_push_roots(ctx, utf8.constData());
-                    });
-                rlnConsumer->onEvent(rlnReplica, "merkle_proof",
-                    [ctx](const QString& eventName, const QVariantList& data) {
-                        if (data.isEmpty()) return;
-                        QByteArray utf8 = data[0].toString().toUtf8();
-                        if (!utf8.isEmpty())
-                            chat_push_proof(ctx, utf8.constData());
-                    });
-                qDebug() << "ChatModuleImpl: Subscribed to RLN module events";
-            } else {
-                qWarning() << "ChatModuleImpl: Could not get RLN module replica, retrying in 10s...";
-                QTimer::singleShot(10000, [ctx, api]() {
-                    auto* rlnConsumer2 = new LogosAPIConsumer("liblogos_rln_module", "chat_module",
-                                                               api->getTokenManager());
-                    LogosObject* rlnReplica2 = rlnConsumer2->requestObject("liblogos_rln_module");
-                    if (rlnReplica2) {
-                        rlnConsumer2->onEvent(rlnReplica2, "valid_roots",
-                            [ctx](const QString&, const QVariantList& data) {
-                                if (data.isEmpty()) return;
-                                QByteArray utf8 = data[0].toString().toUtf8();
-                                if (!utf8.isEmpty()) chat_push_roots(ctx, utf8.constData());
-                            });
-                        rlnConsumer2->onEvent(rlnReplica2, "merkle_proof",
-                            [ctx](const QString&, const QVariantList& data) {
-                                if (data.isEmpty()) return;
-                                QByteArray utf8 = data[0].toString().toUtf8();
-                                if (!utf8.isEmpty()) chat_push_proof(ctx, utf8.constData());
-                            });
-                        qDebug() << "ChatModuleImpl: Subscribed to RLN module events (retry)";
-                    } else {
-                        qWarning() << "ChatModuleImpl: Could not get RLN module replica after retry";
-                    }
+        auto* rlnConsumer = new LogosAPIConsumer("liblogos_rln_module", "chat_module",
+                                                  logosAPI->getTokenManager());
+        LogosObject* rlnReplica = rlnConsumer->requestObject("liblogos_rln_module");
+        if (rlnReplica) {
+            rlnConsumer->onEvent(rlnReplica, "valid_roots",
+                [ctx](const QString&, const QVariantList& data) {
+                    if (data.isEmpty()) return;
+                    QByteArray utf8 = data[0].toString().toUtf8();
+                    if (!utf8.isEmpty()) chat_push_roots(ctx, utf8.constData());
                 });
-            }
-        });
+            rlnConsumer->onEvent(rlnReplica, "merkle_proof",
+                [ctx](const QString&, const QVariantList& data) {
+                    if (data.isEmpty()) return;
+                    QByteArray utf8 = data[0].toString().toUtf8();
+                    if (!utf8.isEmpty()) chat_push_proof(ctx, utf8.constData());
+                });
+            qInfo() << "ChatModuleImpl: Subscribed to RLN module events (sync)";
+        } else {
+            qWarning() << "ChatModuleImpl: Could not get RLN module replica during setRlnConfig";
+        }
+    } else {
+        qWarning() << "ChatModuleImpl::setRlnConfig: logosAPI unavailable; RLN event subscription skipped";
     }
 
     qDebug() << "ChatModuleImpl: RLN config set, account:" << configAccountId << "leaf:" << leafIndex;
