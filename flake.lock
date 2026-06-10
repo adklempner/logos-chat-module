@@ -83,10 +83,11 @@
         "rust-overlay": "rust-overlay"
       },
       "locked": {
-        "dirtyRev": "052cb11f009250687332ad9e81ff3045bcbd394b-dirty",
-        "dirtyShortRev": "052cb11-dirty",
-        "lastModified": 1780524495,
-        "narHash": "sha256-EO7kuOPbOOLZ/r1a+l7P/mi5KLMknNUqB/PQaNIxAag=",
+        "lastModified": 1781066929,
+        "narHash": "sha256-18nFcPAKZLtnJcilSTKyD+Ff4f24M6RgxHrWC9aJIm4=",
+        "ref": "refs/heads/feat/sim-rln-gifter-auth-v2",
+        "rev": "da30619e002afd30464d54c2cfe2952fbce6ac41",
+        "revCount": 162,
         "submodules": true,
         "type": "git",
         "url": "file:///Users/arseniy/Waku/Logos/logos-chat"
