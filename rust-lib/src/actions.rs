@@ -557,3 +557,12 @@ pub(crate) fn set_rln_config(config_account_id: &str, leaf_index: i64) -> Result
     rx.recv()
         .map_err(|e| format!("set_rln_config: delivery response channel closed: {e}"))?
 }
+
+/// Mark delivery online without running chat's built-in bootstrap. Used by
+/// `init_after_delivery`: the caller has already brought delivery_module up
+/// with a custom config (mix nodes, gifter registration, subscribe wiring —
+/// none of which fits a preset), so chat only needs to flip its state so the
+/// bridge worker starts forwarding the client's queued subscriptions.
+pub(crate) fn mark_delivery_online_and_forward_subscriptions() {
+    with_display_mut(|d| set_delivery_state(d, DeliveryStateKind::Online, ""));
+}

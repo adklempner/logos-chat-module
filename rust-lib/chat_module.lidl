@@ -35,6 +35,11 @@ module chat_module {
 
   ; --- lifecycle ---
   method init(instance_path: tstr, delivery_preset: tstr, tcp_port: int) -> result
+  ; Skip chat's built-in delivery_module bootstrap. The caller is responsible
+  ; for having brought delivery up (createNode + start + any RLN/mix mount
+  ; sequence) BEFORE this call. Used by the mix-lez sim, which needs mix nodes
+  ; + gifter registration + subscribe wiring that doesn't fit any preset.
+  method init_after_delivery(instance_path: tstr) -> result
   method shutdown() -> result
 
   ; --- identity ---

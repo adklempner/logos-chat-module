@@ -107,6 +107,29 @@ impl ChatModule for ChatModuleImpl {
         }
     }
 
+    fn init_after_delivery(&mut self, instance_path: String) -> Result<Value, String> {
+        panic_hook::install_once();
+
+        match module().install_with(|| actions::initialize(&instance_path)) {
+            Err(_) => Err(ERR_LOCK_POISONED.to_string()),
+            Ok(Ok(InstallOutcome::Installed)) => {
+                actions::mark_delivery_online_and_forward_subscriptions();
+                Ok(Value::Null)
+            }
+            Ok(Ok(InstallOutcome::AlreadyInstalled)) => {
+                eprintln!(
+                    "chat_module init_after_delivery: already initialised; call \
+                     shutdown() first to reconfigure"
+                );
+                Ok(Value::Null)
+            }
+            Ok(Err(e)) => {
+                eprintln!("chat_module init_after_delivery: {e}");
+                Err(e.to_string())
+            }
+        }
+    }
+
     fn shutdown(&mut self) -> Result<Value, String> {
         // Take the module out of the lock before joining the inbound thread —
         // the worker may try to re-acquire the mutex to handle a pending event,
