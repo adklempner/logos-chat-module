@@ -14,6 +14,12 @@ module delivery_module {
   method subscribe(contentTopic: tstr) -> result
   method send(contentTopic: tstr, payload: bstr) -> result
 
+  ; mix-lez RLN wiring. setRlnConfig mounts the on-chain LEZ RLN group
+  ; manager (configAccountId addresses the sequencer contract) and installs
+  ; leafIndex as the caller's membership slot. Consumed by chat_module for
+  ; its set_rln_config passthrough.
+  method setRlnConfig(configAccountId: tstr, leafIndex: int) -> result
+
   event messageReceived(messageHash: tstr, contentTopic: tstr, payload: bstr, timestamp: int)
   event connectionStateChanged(status: tstr, timestamp: int)
 }

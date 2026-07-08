@@ -171,6 +171,14 @@ impl ChatModule for ChatModuleImpl {
     fn status(&mut self) -> Value {
         actions::status()
     }
+
+    fn set_rln_config(
+        &mut self,
+        config_account_id: String,
+        leaf_index: i64,
+    ) -> Result<Value, String> {
+        actions::set_rln_config(&config_account_id, leaf_index).map(|()| Value::Null)
+    }
 }
 
 /// Install hook resolved by the generated scaffold (invoked lazily on first

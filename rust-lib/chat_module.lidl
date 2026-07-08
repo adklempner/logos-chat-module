@@ -57,6 +57,13 @@ module chat_module {
   ; --- status ---
   method status() -> Status
 
+  ; --- rln (mix-lez spam-protection wiring) ---
+  ; Forwarded to delivery_module.setRlnConfig — mounts the on-chain LEZ RLN
+  ; group manager (config_account_id addresses the sequencer contract) and
+  ; installs `leaf_index` as the local membership slot. Sim calls this once
+  ; per node after registration is confirmed.
+  method set_rln_config(config_account_id: tstr, leaf_index: int) -> result
+
   ; --- events ---
   event message_received(convo_id: tstr, content: tstr, timestamp_ms: int)
   event message_sent(convo_id: tstr, content: tstr, timestamp_ms: int)

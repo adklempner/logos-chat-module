@@ -542,3 +542,18 @@ pub(crate) fn record_message_received(convo_id: &str, content: &[u8]) {
         }
     });
 }
+
+/// Forward chat_module.setRlnConfig to delivery_module.setRlnConfig. Blocks on
+/// the async completion so the caller (typically the sim) can act on the
+/// result synchronously. See rebase notes in delivery_module/src/delivery_
+/// module_plugin.cpp for the mount semantics (on-chain LEZ RLN group manager).
+pub(crate) fn set_rln_config(config_account_id: &str, leaf_index: i64) -> Result<(), String> {
+    let (tx, rx) = crossbeam_channel::bounded::<Result<(), String>>(1);
+    crate::modules()
+        .delivery_module
+        .set_rln_config_async(config_account_id, leaf_index, move |res| {
+            let _ = tx.send(res.map(|_| ()).map_err(|e| e.to_string()));
+        });
+    rx.recv()
+        .map_err(|e| format!("set_rln_config: delivery response channel closed: {e}"))?
+}
